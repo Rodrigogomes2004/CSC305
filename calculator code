@@ -1,0 +1,322 @@
+import 'package:flutter/material.dart';
+import 'package:expressions/expressions.dart';
+
+void main() => runApp(const CalculatorApp());
+
+class CalculatorApp extends StatelessWidget {
+  const CalculatorApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Calculator',
+      theme: ThemeData(useMaterial3: true),
+      home: const CalculatorScreen(),
+    );
+  }
+}
+
+class CalculatorScreen extends StatefulWidget {
+  const CalculatorScreen({super.key});
+
+  @override
+  State<CalculatorScreen> createState() => _CalculatorScreenState();
+}
+
+class _CalculatorScreenState extends State<CalculatorScreen> {
+  final List<String> _tokens = []; // e.g. ["2", "+", "3", "*"]
+  String _entry = '0';            // current number being typed
+  String _accumulator = '';       // e.g. "2 + 3 * 4 = 14"
+
+  bool _justEvaluated = false;
+  bool _hasError = false;
+
+  // Helps distinguish "pressed operator twice" vs "finished typing a number"
+  bool _newEntry = true;
+
+  bool _isOperator(String t) => t == '+' || t == '-' || t == '*' || t == '/';
+
+  String _formatNum(num n) {
+    if (n.isNaN || n.isInfinite) return 'Error';
+    if (n % 1 == 0) return n.toInt().toString();
+
+    // Keep decimals readable
+    final s = n.toStringAsPrecision(12);
+    return s.contains('.') ? s.replaceFirst(RegExp(r'\.?0+$'), '') : s;
+  }
+
+  String _currentDisplay() {
+    if (_tokens.isEmpty) return _entry;
+    return [..._tokens, _entry].join(' ');
+  }
+
+  void _clearAll() {
+    setState(() {
+      _tokens.clear();
+      _entry = '0';
+      _accumulator = '';
+      _justEvaluated = false;
+      _hasError = false;
+      _newEntry = true;
+    });
+  }
+
+  void _onDigit(String d) {
+    setState(() {
+      if (_hasError) _clearAll();
+
+      if (_justEvaluated) {
+        _tokens.clear();
+        _accumulator = '';
+        _entry = '0';
+        _justEvaluated = false;
+        _newEntry = true;
+      }
+
+      if (_newEntry) {
+        _entry = d;
+        _newEntry = false;
+      } else {
+        if (_entry == '0') {
+          _entry = d;
+        } else if (_entry.length < 18) {
+          _entry += d;
+        }
+      }
+    });
+  }
+
+  void _onOperator(String op) {
+    setState(() {
+      if (_hasError) return;
+
+      if (_justEvaluated) {
+        // Continue from the result
+        _tokens.clear();
+        _justEvaluated = false;
+      }
+
+      if (_tokens.isEmpty) {
+        _tokens.add(_entry);
+        _tokens.add(op);
+        _entry = '0';
+        _newEntry = true;
+        return;
+      }
+
+      // If last token is operator:
+      // - if user hasn't typed a new number yet => replace operator
+      // - else => commit entry then add operator
+      if (_isOperator(_tokens.last)) {
+        if (_newEntry) {
+          _tokens[_tokens.length - 1] = op;
+        } else {
+          _tokens.add(_entry);
+          _tokens.add(op);
+          _entry = '0';
+          _newEntry = true;
+        }
+      } else {
+        // safety
+        _tokens.add(_entry);
+        _tokens.add(op);
+        _entry = '0';
+        _newEntry = true;
+      }
+    });
+  }
+
+  void _onEquals() {
+    setState(() {
+      if (_hasError) return;
+
+      if (_tokens.isEmpty) {
+        _accumulator = '$_entry = $_entry';
+        _justEvaluated = true;
+        _newEntry = true;
+        return;
+      }
+
+      // If expression ends with operator and user hasn't typed the next number yet => error
+      if (_isOperator(_tokens.last) && _newEntry) {
+        final exprDisplay = _tokens.join(' ');
+        _accumulator = '$exprDisplay = Error';
+        _entry = 'Error';
+        _hasError = true;
+        return;
+      }
+
+      final evalTokens = List<String>.from(_tokens)..add(_entry);
+      final exprEval = evalTokens.join(' '); // uses + - * /
+
+      try {
+        final parsed = Expression.parse(exprEval);
+        final evaluator = const ExpressionEvaluator();
+        final result = evaluator.eval(parsed, {});
+
+        if (result is num) {
+          final formatted = _formatNum(result);
+
+          if (formatted == 'Error') {
+            _accumulator = '${evalTokens.join(' ')} = Error';
+            _entry = 'Error';
+            _hasError = true;
+          } else {
+            _accumulator = '${evalTokens.join(' ')} = $formatted';
+            _entry = formatted;
+            _tokens.clear();
+            _justEvaluated = true;
+            _newEntry = true;
+          }
+        } else {
+          _accumulator = '${evalTokens.join(' ')} = Error';
+          _entry = 'Error';
+          _hasError = true;
+        }
+      } catch (_) {
+        _accumulator = '${evalTokens.join(' ')} = Error';
+        _entry = 'Error';
+        _hasError = true;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final buttons = <_Btn>[
+      _Btn('C', onTap: _clearAll, accent: true),
+      _Btn('/', onTap: () => _onOperator('/')),
+      _Btn('*', onTap: () => _onOperator('*')),
+      _Btn('-', onTap: () => _onOperator('-')),
+
+      _Btn('7', onTap: () => _onDigit('7')),
+      _Btn('8', onTap: () => _onDigit('8')),
+      _Btn('9', onTap: () => _onDigit('9')),
+      _Btn('+', onTap: () => _onOperator('+')),
+
+      _Btn('4', onTap: () => _onDigit('4')),
+      _Btn('5', onTap: () => _onDigit('5')),
+      _Btn('6', onTap: () => _onDigit('6')),
+      _Btn('=', onTap: _onEquals, accent: true),
+
+      _Btn('1', onTap: () => _onDigit('1')),
+      _Btn('2', onTap: () => _onDigit('2')),
+      _Btn('3', onTap: () => _onDigit('3')),
+      _Btn('0', onTap: () => _onDigit('0')),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Rodrigo Gomes'), // change to your name
+        centerTitle: true,
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Display area (compact)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: Colors.grey.shade100,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          reverse: true,
+                          child: Text(
+                            _accumulator,
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          reverse: true,
+                          child: Text(
+                            _currentDisplay(),
+                            style: const TextStyle(
+                              fontSize: 34,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Buttons (grid, compact)
+                  GridView.count(
+                    crossAxisCount: 4,
+                    shrinkWrap: true,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 1.15,
+                    children: buttons.map((b) {
+                      return _CalcButton(
+                        label: b.label,
+                        accent: b.accent,
+                        onTap: b.onTap,
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Btn {
+  final String label;
+  final VoidCallback onTap;
+  final bool accent;
+  _Btn(this.label, {required this.onTap, this.accent = false});
+}
+
+class _CalcButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  final bool accent;
+
+  const _CalcButton({
+    required this.label,
+    required this.onTap,
+    this.accent = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+        backgroundColor: accent ? Colors.indigo : Colors.white,
+        foregroundColor: accent ? Colors.white : Colors.black87,
+        elevation: 1.5,
+      ),
+      child: Text(label),
+    );
+  }
+}
